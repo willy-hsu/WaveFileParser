@@ -100,6 +100,7 @@ void message_format(uint16_t input) {
 }
 
 void message_show_body(fmt_chunk_header fmt_header, fmt_chunk_body fmt_body) {
+	printf("----------[show format body]----------\n");
 	message_format(fmt_body.format_tag);
 	printf("Channels: %d\n", fmt_body.channels);
 	printf("Sample Rate: %d blocks per second\n", fmt_body.sample_rate);
@@ -122,4 +123,5 @@ void message_show_body(fmt_chunk_header fmt_header, fmt_chunk_body fmt_body) {
 		printf("Format in GUID ");
 		message_format(*(uint16_t *)fmt_body.sub_format);
 	}
+	printf("\n");
 }

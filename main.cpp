@@ -53,15 +53,19 @@ uint8_t real_chunk_body_size = 0;
 char InputFileFolder[][64] = {
 	/* 0 */ "sample_wav",
 	/* 1 */ "sample_wav",
-	/* 2 */ "simple_wav",
-	/* 3 */ "simple_wav",
+	/* 2 */ "sample_wav",
+	/* 3 */ "sample_wav",
+	/* 4 */ "simple_wav",
+	/* 5 */ "simple_wav",
 };
 
 char InputFileName[][256] = {
 	/* 0 */ "beemoved_96k_2ch_16b_short",
 	/* 1 */ "beemoved_96k_2ch_24b_short",
-	/* 2 */ "CantinaBand3",
-	/* 3 */ "BabyElephantWalk60",
+	/* 2 */ "dnd_48k_8ch_24_short",
+	/* 3 */ "frozenplanet_48k_8ch_24b_short",
+	/* 4 */ "CantinaBand3",
+	/* 5 */ "BabyElephantWalk60",
 };
 
 // -------------------------------------------------- functions --------------------------------------------------
@@ -77,24 +81,30 @@ void Arr2String(char *Dest, char *Src, uint8_t size ) {
  */
 void Model_DataLostAndCompensation(void) {
 
-
 	/*
 	| buffer in bytes units
 	|                           |<----- lostPts ----->|                                |<----- lostPts ----->|                                |<----- lostPts ----->|                                  ...
 	|<----- initial phase ----->|<-------------------- lostPeriod -------------------->|<-------------------- lostPeriod -------------------->|<-------------------- lostPeriod -------------------->| ...
 	*/
 
-	uint32_t initialPhase = 5000;
+	uint32_t initialPhase = 512;
 	uint32_t lostPeriod = fmt_single_body.sample_rate * fmt_single_body.bit_per_sample / 8; // unit : bytes
 	uint32_t lostPts = 128; // unit : bytes
+
+	if( fmt_single_body.sample_rate <= 48000 ) {
+		lostPts = 2 * fmt_single_body.bit_per_sample / 8;
+	} else if( fmt_single_body.sample_rate <= 96000 ) {
+		lostPts = 4 * fmt_single_body.bit_per_sample / 8;
+	} else {
+		lostPts = 8 * fmt_single_body.bit_per_sample / 8;
+	}
 
 	printf("-----[ data lost simulation ]-----\n");
 	printf("initial phase : %d\n", initialPhase);
 	printf("lost period : %d bytes\n", lostPeriod);
-	printf("lost sample : %d \n", lostPts);
-	printf("-----[ data lost simulation ]-----\n");
+	printf("lost sample : %d bytes\n", lostPts);
 
-	for( uint32_t i=initialPhase; i<single_channel_size; i=i+lostPeriod/10 ) {
+	for( uint32_t i=initialPhase; i<single_channel_size; i=i+lostPeriod ) {
 		for( uint32_t j=0; j<lostPts; j++ ) {
 			singla_channel_dump[i+j] = 0;
 		}
