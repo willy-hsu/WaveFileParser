@@ -22,7 +22,7 @@
 // file
 char gDebugString[256];
 char filename[128];
-uint8_t gFileSelection = 0;
+uint8_t gFileSelection = 1;
 FILE *fp = NULL;
 FILE *fp_pcm_data = NULL;
 FILE *fp_output = NULL;
@@ -69,10 +69,7 @@ char InputFileName[][256] = {
 };
 
 // -------------------------------------------------- functions --------------------------------------------------
-void Arr2String(char *Dest, char *Src, uint8_t size ) {
-	strncpy(Dest, Src, size);
-	Dest[size] = '\0';
-}
+
 
 /**
  * @brief 
@@ -82,31 +79,101 @@ void Arr2String(char *Dest, char *Src, uint8_t size ) {
 void Model_DataLostAndCompensation(void) {
 
 	/*
+	Note. 
+	BitPerSample : 1~8 bits, unsigned value
+	BitPerSample : > 8 bits, signed value
+
 	| buffer in bytes units
 	|                           |<----- lostPts ----->|                                |<----- lostPts ----->|                                |<----- lostPts ----->|                                  ...
 	|<----- initial phase ----->|<-------------------- lostPeriod -------------------->|<-------------------- lostPeriod -------------------->|<-------------------- lostPeriod -------------------->| ...
 	*/
 
-	uint32_t initialPhase = 512;
-	uint32_t lostPeriod = fmt_single_body.sample_rate * fmt_single_body.bit_per_sample / 8; // unit : bytes
-	uint32_t lostPts = 128; // unit : bytes
+	uint32_t lostMethod = LOSTTYPE_CONTINUOUS;
+	uint32_t initialPhase = 0; // unit : sec
+	uint32_t lostPeriod = fmt_single_body.sample_rate * fmt_single_body.bit_per_sample / 8; // unit : 1sec as bytes
+	uint32_t lostSample = 0; // unit : sample
+	uint32_t lostPts = 0; // unit : bytes
 
+	uint32_t compMethod = COMPTYPE_NONE;
+
+	// basic lost parameter
 	if( fmt_single_body.sample_rate <= 48000 ) {
-		lostPts = 2 * fmt_single_body.bit_per_sample / 8;
+		lostSample = 2;
 	} else if( fmt_single_body.sample_rate <= 96000 ) {
-		lostPts = 4 * fmt_single_body.bit_per_sample / 8;
+		lostSample = 4;
 	} else {
-		lostPts = 8 * fmt_single_body.bit_per_sample / 8;
+		lostSample = 8;
 	}
 
-	printf("-----[ data lost simulation ]-----\n");
-	printf("initial phase : %d\n", initialPhase);
-	printf("lost period : %d bytes\n", lostPeriod);
-	printf("lost sample : %d bytes\n", lostPts);
+	// manual tuning
+	lostSample = lostSample * 16;
+	initialPhase = ( fmt_single_body.bit_per_sample / 8 ) * 15;
+	lostPeriod = lostPeriod / 16;
 
-	for( uint32_t i=initialPhase; i<single_channel_size; i=i+lostPeriod ) {
-		for( uint32_t j=0; j<lostPts; j++ ) {
-			singla_channel_dump[i+j] = 0;
+	// necessary parameter
+	lostPts = lostSample * fmt_single_body.bit_per_sample / 8;
+
+	// print information
+	printf("-----[ data lost simulation ]-----\n");
+	printf("initial phase : %d bytes = %d samples\n", initialPhase, (initialPhase*8)/ fmt_single_body.bit_per_sample);
+	printf("single_channel_size : %d bytes\n", single_channel_size);
+	printf("lost period : %d bytes\n", lostPeriod);
+	printf("lost sample : %d samples\n", lostSample);
+	printf("lost bytes : %d bytes\n", lostPts);
+	printf("lost type : %s\n", losttype_name[lostMethod]);
+	printf("compensation type : %s\n", comptype_name[compMethod]);
+
+	// data lost
+	if( lostMethod == LOSTTYPE_CONTINUOUS ) {
+		for( uint32_t i=initialPhase; i<single_channel_size; i=i+lostPeriod ) {
+			for( uint32_t j=0; j<lostPts; j++ ) {
+				singla_channel_dump[i+j] = 0;
+			}
+		}
+	}
+
+	// compensation
+	if( lostMethod != LOSTTYPE_NONE ) {
+		if( compMethod == COMPTYPE_INNER_INTERPLOATION ) {
+			for( uint32_t i=initialPhase; i<single_channel_size; i=i+lostPeriod ) {
+				if( i > 0 ) {
+					// find the interpolation endpoints
+					sint32_t startPts = 0, endPts = 0;
+					if( fmt_single_body.bit_per_sample == 8 ) {
+						startPts = singla_channel_dump[i-(fmt_single_body.bit_per_sample/8)];
+						endPts = singla_channel_dump[i+lostPts];
+					} else if( fmt_single_body.bit_per_sample == 16 ) {
+						sint16_t b16_val = 0;
+						b16_val = *((sint16_t*)(&singla_channel_dump[i-(fmt_single_body.bit_per_sample/8)]));
+						startPts = b16_val;
+						b16_val = *((sint16_t*)(&singla_channel_dump[i+lostPts]));
+						endPts = b16_val;
+					} else if( fmt_single_body.bit_per_sample == 24 ) {
+						startPts = b24_signed_to_b32_signed(&singla_channel_dump[i-(fmt_single_body.bit_per_sample/8)]);
+						endPts = b24_signed_to_b32_signed(&singla_channel_dump[i+lostPts]);
+					} else if( fmt_single_body.bit_per_sample == 32 ) {
+						startPts = *((sint32_t*)(&singla_channel_dump[i-(fmt_single_body.bit_per_sample/8)]));
+						endPts = *((sint32_t*)(&singla_channel_dump[i+lostPts]));
+					}
+					// printf("startPts = %d, endPts = %d\n", startPts, endPts);
+
+					// inner interpolation
+					sint32_t intp_value = 0;
+					for( uint32_t j=0; j<lostSample; j++ ) {
+						sint32_t a = endPts*(j+1);
+						sint32_t b = startPts*(lostSample-j);
+						sint32_t c = a + b;
+						sint32_t intp_value = c/(sint32_t)(lostSample+1);
+						// printf("[%2d] intp_value = %d\n", j, intp_value);
+						if( fmt_single_body.bit_per_sample == 24 ) {
+							singla_channel_dump[i+j*3+0] = ((intp_value & 0x000000ff) >>  0);
+							singla_channel_dump[i+j*3+1] = ((intp_value & 0x0000ff00) >>  8);
+							singla_channel_dump[i+j*3+2] = ((intp_value & 0x00ff0000) >> 16);
+						}
+					}
+				}
+			}
+
 		}
 	}
 

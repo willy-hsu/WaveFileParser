@@ -4,6 +4,19 @@
 #include "utility.h"
 #include "arch.h"
 
+/*-------------------- GLOBAL PARAMETER --------------------*/
+char losttype_name[LOSTTYPE_MAX][32] = {
+	"NONE",
+	"CONTINUOUS",
+	"INTERLEAVE",
+};
+
+char comptype_name[COMPTYPE_MAX][32] = {
+	"NONE",
+	"INNER_INTERPLOATION",
+	"G711_VOIP",
+};
+
 uint32_t channel_mask[SPEAKER_NUM_MAX] = {
 	MASK_SPEAKER_FRONT_LEFT,
 	MASK_SPEAKER_FRONT_RIGHT,
@@ -46,6 +59,38 @@ char channel_name[SPEAKER_NUM_MAX][32] = {
 	/* 17 */ "TOP_BACK_RIGHT",
 };
 
+#define IS_NEGATIVE(INPUT, BITWIDTH) ( ( (INPUT)>=(1<<(BITWIDTH-1)) ) ? 1 : 0)
+#define SIGNED_INVERSE(INPUT, BITWIDTH) ( (-((1<<(BITWIDTH)) - (INPUT))) )
+
+/*-------------------- DATA/STRING PROCESSING FUNCTIONS --------------------*/
+/**
+ * @brief 
+ * convert a char array to string array with terminator
+ * @param Dest : pointer to the destination array as string
+ * @param Src : pointer to the source char array
+ * @param size : string size
+ */
+void Arr2String(char *Dest, char *Src, uint8_t size ) {
+	strncpy(Dest, Src, size);
+	Dest[size] = '\0';
+}
+
+/**
+ * @brief 
+ * convert 24bit signed value to 32bit signed value to a parameter
+ * @param pBuf : pointer to a 8bit PCM data
+ * @return sint32_t : single sample value
+ */
+sint32_t b24_signed_to_b32_signed(uint8_t *pBuf) {
+	sint32_t ret = 0;
+	ret = ( pBuf[2] << 16 ) + ( pBuf[1] << 8 ) + ( pBuf[0] );
+	if( IS_NEGATIVE(ret, 24) ) {
+		ret = SIGNED_INVERSE(ret, 24);
+	}
+	return ret;
+}
+
+/*-------------------- FUNCTIONS --------------------*/
 /*
 The channels specified in dwChannleMask must be present in the prescribed order (from least significant bit up).
 In other words, if only Front Left and Front Center are specified, then Front Left should come first in the interleaved stream
