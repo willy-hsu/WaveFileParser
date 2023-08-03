@@ -1,0 +1,8 @@
+output
+sample_wav
+simple_wav
+*.dev
+*.win
+*.gch
+*.layout
+.vscode

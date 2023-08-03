@@ -3,6 +3,8 @@
 
 #include "arch.h"
 
+#define BASIC_HEADER_SIZE (20)
+
 typedef struct riff_chunk {
     sint8_t  id[4];             // 4b "RIFF" string  >|
     uint32_t size;              // 4b                 |-> 12 byte
@@ -28,10 +30,6 @@ typedef struct fmt_chunk_body {
     uint32_t channel_mask;         // 4b Speaker position mask
     uint8_t  sub_format[16];       // 16b GUID, including the data format code
 } fmt_chunk_body;
-
-// struct internal_info {
-// 	uint32_t 
-// };
 
 struct data_chunk {
     sint8_t  id[4]; // 4 "data" string
