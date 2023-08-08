@@ -9,6 +9,7 @@ char losttype_name[LOSTTYPE_MAX][32] = {
 	"NONE",
 	"CONTINUOUS",
 	"INTERLEAVE",
+	"CONTINUOUS_FRAME",
 };
 
 char comptype_name[COMPTYPE_MAX][32] = {

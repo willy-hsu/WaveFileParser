@@ -6,3 +6,5 @@ simple_wav
 *.gch
 *.layout
 .vscode
+*.o
+*.wav

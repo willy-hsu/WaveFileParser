@@ -33,11 +33,13 @@ extern fmt_chunk_body fmt_single_body;
 extern data_chunk data_single_header;
 
 extern uint8_t *raw_dump;
-extern uint8_t *singla_channel_dump;
+extern uint8_t *single_channel_dump;
 extern uint32_t single_channel_size;
 extern uint32_t sample_size_per_group;
 
 // data lost and compensation
+extern uint8_t lostRandomOffsetEnable;
+extern uint32_t randomOffsetMax;
 extern uint8_t lostMethod;
 extern uint16_t Manual_lost_sample_ratio;
 extern uint16_t Manual_lost_period_ratio;

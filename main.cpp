@@ -1,11 +1,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "arch.h"
 #include "utility.h"
 #include "wave.h"
 #include "wave_type.h"
 #include "param.h"
+#include "g711PlcMain.h"
 
 // reference
 // https://codereview.stackexchange.com/questions/222026/parse-a-wav-file-and-export-pcm-data
@@ -13,7 +15,7 @@
 
 // -------------------------------------------------- functions --------------------------------------------------
 /**
- * @brief 
+ * @brief
  * simulate the data lost and compensation process
  * 192K, lost 8 samples
  * 96K,  lost 4 samples
@@ -22,27 +24,43 @@
 void Model_DataLostAndCompensation(void) {
 
 	/*
-	Note. 
+	Note.
 	BitPerSample : 1~8 bits, unsigned value
 	BitPerSample : > 8 bits, signed value
 
+	CONTINUOUS TYPE
 	| buffer in bytes units
 	|                           |<----- lostPts ----->|                                |<----- lostPts ----->|                                |<----- lostPts ----->|                                  ...
+	|<----- initial phase ----->|<-------------------- lostPeriod -------------------->|<-------------------- lostPeriod -------------------->|<-------------------- lostPeriod -------------------->| ...
+
+	INTERLEAVE TYPE
+	| buffer in bytes units
+	|                           |<-- interleave lost section             -->|          |<-- interleave lost section             -->|          |<-- interleave lost section             -->|
+	|                           |<- xxxx ->|          |<- xxxx ->|          |          |<- xxxx ->|          |<- xxxx ->|          |          |<- xxxx ->|          |<- xxxx ->|          |            ...
 	|<----- initial phase ----->|<-------------------- lostPeriod -------------------->|<-------------------- lostPeriod -------------------->|<-------------------- lostPeriod -------------------->| ...
 	*/
 
 	uint32_t initialPhase = 0; // unit : sec
 	uint32_t lostPeriod = fmt_single_body.sample_rate * fmt_single_body.bit_per_sample / 8; // unit : 1sec as bytes
+
 	uint32_t lostSample = 0; // unit : sample
+	uint32_t lostILSample = 0; // unit : sample
+
 	uint32_t lostPts = 0; // unit : bytes
+	uint32_t lostILPts = 0; // unit: bytes
+
+	uint32_t randomOffset = 0;
 
 	// basic lost parameter
 	if( fmt_single_body.sample_rate <= 48000 ) {
 		lostSample = 2;
+		lostILSample = 1;
 	} else if( fmt_single_body.sample_rate <= 96000 ) {
 		lostSample = 4;
+		lostILSample = 2;
 	} else {
 		lostSample = 8;
+		lostILSample = 4;
 	}
 
 	// manual tuning
@@ -52,6 +70,7 @@ void Model_DataLostAndCompensation(void) {
 
 	// necessary parameter
 	lostPts = lostSample * fmt_single_body.bit_per_sample / 8;
+	lostILPts = lostILSample * fmt_single_body.bit_per_sample / 8;
 
 	// print information
 	printf("-----[ data lost simulation ]-----\n");
@@ -59,71 +78,148 @@ void Model_DataLostAndCompensation(void) {
 	printf("single_channel_size : %d bytes\n", single_channel_size);
 	printf("lost period : %d bytes\n", lostPeriod);
 	printf("lost sample : %d samples\n", lostSample);
+	printf("interleave sample : %d samples\n", lostILSample);
 	printf("lost bytes : %d bytes\n", lostPts);
+	printf("interleave bytes : %d bytes\n", lostILPts);
 	printf("lost type : %s\n", losttype_name[lostMethod]);
+	printf("random offset enable : %d\n", lostRandomOffsetEnable);
 	printf("compensation type : %s\n", comptype_name[compMethod]);
+
+	if( lostRandomOffsetEnable != 0 ) {
+		srand(time(NULL));
+	}
 
 	// data lost
 	if( lostMethod == LOSTTYPE_CONTINUOUS ) {
 		for( uint32_t i=initialPhase; i<single_channel_size; i=i+lostPeriod ) {
-			for( uint32_t j=0; j<lostPts; j++ ) {
-				singla_channel_dump[i+j] = 0;
+			if( lostRandomOffsetEnable != 0 ) {
+				randomOffset = rand() % (randomOffsetMax*(fmt_single_body.bit_per_sample/8));
+			} else {
+				randomOffset = 0;
+			}
+			memset(single_channel_dump+i+randomOffset, 0x0, lostPts);
+		}
+	} else if( lostMethod == LOSTTYPE_INTERLEAVE ) {
+		for( uint32_t i=initialPhase; i<single_channel_size; i=i+lostPeriod ) {
+			uint32_t currentIdx = 0;
+			for(uint32_t ProcTimes=0; ProcTimes*lostILSample<lostSample; ProcTimes++) {
+				currentIdx = i + ProcTimes*(lostILSample*2)*(fmt_single_body.bit_per_sample/8);
+				memset(single_channel_dump+currentIdx, 0x0, lostILSample*(fmt_single_body.bit_per_sample/8));
 			}
 		}
+	} else if( lostMethod == LOSTTYPE_CONTINUOUS_FRAME ) {
+		g711DataLost();
 	}
 
 	// compensation
 	if( lostMethod != LOSTTYPE_NONE ) {
 		if( compMethod == COMPTYPE_INNER_INTERPLOATION ) {
-			for( uint32_t i=initialPhase; i<single_channel_size; i=i+lostPeriod ) {
-				if( i > 0 ) {
-					// find the interpolation endpoints
-					sint32_t startPts = 0, endPts = 0;
-					if( fmt_single_body.bit_per_sample == 8 ) {
-						startPts = singla_channel_dump[i-(fmt_single_body.bit_per_sample/8)];
-						endPts = singla_channel_dump[i+lostPts];
-					} else if( fmt_single_body.bit_per_sample == 16 ) {
-						sint16_t b16_val = 0;
-						b16_val = *((sint16_t*)(&singla_channel_dump[i-(fmt_single_body.bit_per_sample/8)]));
-						startPts = b16_val;
-						b16_val = *((sint16_t*)(&singla_channel_dump[i+lostPts]));
-						endPts = b16_val;
-					} else if( fmt_single_body.bit_per_sample == 24 ) {
-						startPts = b24_signed_to_b32_signed(&singla_channel_dump[i-(fmt_single_body.bit_per_sample/8)]);
-						endPts = b24_signed_to_b32_signed(&singla_channel_dump[i+lostPts]);
-					} else if( fmt_single_body.bit_per_sample == 32 ) {
-						startPts = *((sint32_t*)(&singla_channel_dump[i-(fmt_single_body.bit_per_sample/8)]));
-						endPts = *((sint32_t*)(&singla_channel_dump[i+lostPts]));
-					}
-					// printf("startPts = %d, endPts = %d\n", startPts, endPts);
-
-					// inner interpolation
-					sint32_t intp_value = 0;
-					for( uint32_t j=0; j<lostSample; j++ ) {
-						sint32_t a = endPts*(j+1);
-						sint32_t b = startPts*(lostSample-j);
-						sint32_t c = a + b;
-						sint32_t intp_value = c/(sint32_t)(lostSample+1);
-						// printf("[%2d] intp_value = %d\n", j, intp_value);
+			if( lostMethod == LOSTTYPE_CONTINUOUS ) {
+				for( uint32_t i=initialPhase; i<single_channel_size; i=i+lostPeriod ) {
+					if( i > 0 ) {
+						// find the interpolation endpoints
+						sint32_t startPts = 0, endPts = 0;
 						if( fmt_single_body.bit_per_sample == 8 ) {
-							singla_channel_dump[i+j*1+0] = ((intp_value & 0x000000ff) >>  0);
+							startPts = single_channel_dump[i-(fmt_single_body.bit_per_sample/8)];
+							endPts = single_channel_dump[i+lostPts];
 						} else if( fmt_single_body.bit_per_sample == 16 ) {
-							singla_channel_dump[i+j*2+0] = ((intp_value & 0x000000ff) >>  0);
-							singla_channel_dump[i+j*2+1] = ((intp_value & 0x0000ff00) >>  8);
+							sint16_t b16_val = 0;
+							b16_val = *((sint16_t*)(&single_channel_dump[i-(fmt_single_body.bit_per_sample/8)]));
+							startPts = b16_val;
+							b16_val = *((sint16_t*)(&single_channel_dump[i+lostPts]));
+							endPts = b16_val;
 						} else if( fmt_single_body.bit_per_sample == 24 ) {
-							singla_channel_dump[i+j*3+0] = ((intp_value & 0x000000ff) >>  0);
-							singla_channel_dump[i+j*3+1] = ((intp_value & 0x0000ff00) >>  8);
-							singla_channel_dump[i+j*3+2] = ((intp_value & 0x00ff0000) >> 16);
-						} else if( fmt_single_body.bit_per_sample == 24 ) {
-							singla_channel_dump[i+j*4+0] = ((intp_value & 0x000000ff) >>  0);
-							singla_channel_dump[i+j*4+1] = ((intp_value & 0x0000ff00) >>  8);
-							singla_channel_dump[i+j*4+2] = ((intp_value & 0x00ff0000) >> 16);
-							singla_channel_dump[i+j*4+2] = ((intp_value & 0xff000000) >> 24);
+							startPts = b24_signed_to_b32_signed(&single_channel_dump[i-(fmt_single_body.bit_per_sample/8)]);
+							endPts = b24_signed_to_b32_signed(&single_channel_dump[i+lostPts]);
+						} else if( fmt_single_body.bit_per_sample == 32 ) {
+							startPts = *((sint32_t*)(&single_channel_dump[i-(fmt_single_body.bit_per_sample/8)]));
+							endPts = *((sint32_t*)(&single_channel_dump[i+lostPts]));
+						}
+						// printf("startPts = %d, endPts = %d\n", startPts, endPts);
+
+						// inner interpolation
+						sint32_t intp_value = 0;
+						for( uint32_t j=0; j<lostSample; j++ ) {
+							sint32_t a = endPts*(j+1);
+							sint32_t b = startPts*(lostSample-j);
+							sint32_t c = a + b;
+							sint32_t intp_value = c/(sint32_t)(lostSample+1);
+							// printf("[%2d] intp_value = %d\n", j, intp_value);
+							if( fmt_single_body.bit_per_sample == 8 ) {
+								single_channel_dump[i+j*1+0] = ((intp_value & 0x000000ff) >>  0);
+							} else if( fmt_single_body.bit_per_sample == 16 ) {
+								single_channel_dump[i+j*2+0] = ((intp_value & 0x000000ff) >>  0);
+								single_channel_dump[i+j*2+1] = ((intp_value & 0x0000ff00) >>  8);
+							} else if( fmt_single_body.bit_per_sample == 24 ) {
+								single_channel_dump[i+j*3+0] = ((intp_value & 0x000000ff) >>  0);
+								single_channel_dump[i+j*3+1] = ((intp_value & 0x0000ff00) >>  8);
+								single_channel_dump[i+j*3+2] = ((intp_value & 0x00ff0000) >> 16);
+							} else if( fmt_single_body.bit_per_sample == 24 ) {
+								single_channel_dump[i+j*4+0] = ((intp_value & 0x000000ff) >>  0);
+								single_channel_dump[i+j*4+1] = ((intp_value & 0x0000ff00) >>  8);
+								single_channel_dump[i+j*4+2] = ((intp_value & 0x00ff0000) >> 16);
+								single_channel_dump[i+j*4+2] = ((intp_value & 0xff000000) >> 24);
+							}
 						}
 					}
 				}
-			}
+			} else if( lostMethod == LOSTTYPE_INTERLEAVE ) {
+				for( uint32_t i=initialPhase; i<single_channel_size; i=i+lostPeriod ) {
+					uint32_t currentIdx = 0;
+					for(uint32_t ProcTimes=0; ProcTimes*lostILSample<lostSample; ProcTimes++) {
 
+						currentIdx = i + ProcTimes*(lostILSample*2)*(fmt_single_body.bit_per_sample/8);
+
+						// find the interpolation endpoints
+						sint32_t startPts = 0, endPts = 0;
+						if( fmt_single_body.bit_per_sample == 8 ) {
+							startPts = single_channel_dump[currentIdx-(fmt_single_body.bit_per_sample/8)];
+							endPts = single_channel_dump[currentIdx+lostILPts];
+						} else if( fmt_single_body.bit_per_sample == 16 ) {
+							sint16_t b16_val = 0;
+							b16_val = *((sint16_t*)(&single_channel_dump[currentIdx-(fmt_single_body.bit_per_sample/8)]));
+							startPts = b16_val;
+							b16_val = *((sint16_t*)(&single_channel_dump[currentIdx+lostILPts]));
+							endPts = b16_val;
+						} else if( fmt_single_body.bit_per_sample == 24 ) {
+							startPts = b24_signed_to_b32_signed(&single_channel_dump[currentIdx-(fmt_single_body.bit_per_sample/8)]);
+							endPts = b24_signed_to_b32_signed(&single_channel_dump[currentIdx+lostILPts]);
+						} else if( fmt_single_body.bit_per_sample == 32 ) {
+							startPts = *((sint32_t*)(&single_channel_dump[currentIdx-(fmt_single_body.bit_per_sample/8)]));
+							endPts = *((sint32_t*)(&single_channel_dump[currentIdx+lostILPts]));
+						}
+						// printf("startPts = %d, endPts = %d\n", startPts, endPts);
+
+						// inner interpolation
+						sint32_t intp_value = 0;
+						for( uint32_t j=0; j<lostILSample; j++ ) {
+							sint32_t a = endPts*(j+1);
+							sint32_t b = startPts*(lostILSample-j);
+							sint32_t c = a + b;
+							sint32_t intp_value = c/(sint32_t)(lostILSample+1);
+							// printf("[%2d] intp_value = %d\n", j, intp_value);
+							if( fmt_single_body.bit_per_sample == 8 ) {
+								single_channel_dump[currentIdx+j*1+0] = ((intp_value & 0x000000ff) >>  0);
+							} else if( fmt_single_body.bit_per_sample == 16 ) {
+								single_channel_dump[currentIdx+j*2+0] = ((intp_value & 0x000000ff) >>  0);
+								single_channel_dump[currentIdx+j*2+1] = ((intp_value & 0x0000ff00) >>  8);
+							} else if( fmt_single_body.bit_per_sample == 24 ) {
+								single_channel_dump[currentIdx+j*3+0] = ((intp_value & 0x000000ff) >>  0);
+								single_channel_dump[currentIdx+j*3+1] = ((intp_value & 0x0000ff00) >>  8);
+								single_channel_dump[currentIdx+j*3+2] = ((intp_value & 0x00ff0000) >> 16);
+							} else if( fmt_single_body.bit_per_sample == 24 ) {
+								single_channel_dump[currentIdx+j*4+0] = ((intp_value & 0x000000ff) >>  0);
+								single_channel_dump[currentIdx+j*4+1] = ((intp_value & 0x0000ff00) >>  8);
+								single_channel_dump[currentIdx+j*4+2] = ((intp_value & 0x00ff0000) >> 16);
+								single_channel_dump[currentIdx+j*4+2] = ((intp_value & 0xff000000) >> 24);
+							}
+						}
+
+					}
+				}
+			}
+		} else if( compMethod == COMPTYPE_G711_VOIP ) {
+			g711PlcMain();
 		}
 	}
 
@@ -133,7 +229,7 @@ int single_file_processing(void) {
 
 	// ----------------------------------------------------------------------------------------------------
 	// open file
-	sprintf(filename, "%s/%s.wav", InputFileFolder[gFileSelection], InputFileName[gFileSelection]);
+	sprintf(filename, "input/%s/%s.wav", InputFileFolder[gFileSelection], InputFileName[gFileSelection]);
 	if ((fp = fopen(filename, "rb"))==NULL) {
 		printf("Can't open the file. Exit.\n");
 		goto EXIT;
@@ -293,7 +389,7 @@ int single_file_processing(void) {
 		// show signle file information
 		message_show_body(fmt_single_header, fmt_single_body);
 
-		singla_channel_dump = (uint8_t*)malloc(single_channel_size);
+		single_channel_dump = (uint8_t*)malloc(single_channel_size);
 		uint32_t singla_channel_dump_idx = 0;
 		for( uint8_t ch=0; ch<fmt_body.channels; ch++ ) {
 
@@ -301,7 +397,7 @@ int single_file_processing(void) {
 			singla_channel_dump_idx = 0;
 			for( uint32_t idx=0; idx<data_header.size; idx=idx+sample_size_per_group ) {
 				for( uint32_t sample_idx=0; sample_idx<(fmt_body.bit_per_sample/8); sample_idx++ ) {
-					singla_channel_dump[singla_channel_dump_idx++] = raw_dump[idx + ch*(fmt_body.bit_per_sample/8) + sample_idx];
+					single_channel_dump[singla_channel_dump_idx++] = raw_dump[idx + ch*(fmt_body.bit_per_sample/8) + sample_idx];
 				}
 			}
 
@@ -315,7 +411,7 @@ int single_file_processing(void) {
 					printf("Can't open the single channel raw PCM file for write. Exit.\n");
 					goto EXIT;
 				}
-				if( fwrite(singla_channel_dump, 1, single_channel_size, fp_pcm_data) != single_channel_size ) {
+				if( fwrite(single_channel_dump, 1, single_channel_size, fp_pcm_data) != single_channel_size ) {
 					printf("Can't write single channel raw PCM file. Exit.\n");
 					goto EXIT;
 				}
@@ -349,7 +445,7 @@ int single_file_processing(void) {
 						printf("Can't write WAV file data chunk. Exit.\n");
 						goto EXIT;
 					}
-					if( fwrite(singla_channel_dump, 1, single_channel_size, fp_single_output) != single_channel_size ) {
+					if( fwrite(single_channel_dump, 1, single_channel_size, fp_single_output) != single_channel_size ) {
 						printf("Can't write WAV file pcm data. Exit.\n");
 						goto EXIT;
 					}
@@ -369,9 +465,9 @@ EXIT:
 		free(raw_dump);
 		raw_dump=NULL;
 	}
-	if( singla_channel_dump != NULL ) {
-		free(singla_channel_dump);
-		singla_channel_dump=NULL;
+	if( single_channel_dump != NULL ) {
+		free(single_channel_dump);
+		single_channel_dump=NULL;
 	}
 	if( fp_pcm_data != NULL ) {
 		fclose(fp_pcm_data);
@@ -389,12 +485,12 @@ EXIT:
 		fclose(fp);
 		fp = NULL;
 	}
-	
+
 	return 0;
 }
 
 int main(void) {
-	for(gFileSelection=0; gFileSelection<34; gFileSelection++) {
+	for(gFileSelection=0; gFileSelection<=16; gFileSelection++) {
 		single_file_processing();
 	}
 }
