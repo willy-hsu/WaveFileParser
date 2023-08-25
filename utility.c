@@ -3,6 +3,7 @@
 #include "wave_type.h"
 #include "utility.h"
 #include "arch.h"
+#include "config.h"
 
 /*-------------------- GLOBAL PARAMETER --------------------*/
 char losttype_name[LOSTTYPE_MAX][32] = {

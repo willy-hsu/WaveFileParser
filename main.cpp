@@ -57,10 +57,10 @@ void Model_DataLostAndCompensation(void) {
 		lostILSample = 1;
 	} else if( fmt_single_body.sample_rate <= 96000 ) {
 		lostSample = 4;
-		lostILSample = 2;
+		lostILSample = 1;
 	} else {
 		lostSample = 8;
-		lostILSample = 4;
+		lostILSample = 1;
 	}
 
 	// manual tuning
@@ -328,7 +328,7 @@ int single_file_processing(void) {
 	// ----------------------------------------------------------------------------------------------------
 	// Package wave file
 	if( gFlow_dump_original_wav != 0 ) {
-		sprintf(filename, "output/%s_modified.wav", InputFileName[gFileSelection]);
+		sprintf(filename, "output/MY_%s_restored.wav", InputFileName[gFileSelection]);
 		if( (fp_output = fopen(filename, "wb")) == NULL ) {
 			printf("Can't open the new WAV file for write. Exit.\n");
 			goto EXIT;
@@ -456,8 +456,50 @@ int single_file_processing(void) {
 					}
 				}
 			}
+
+			// put data back
+			singla_channel_dump_idx = 0;
+			for( uint32_t idx=0; idx<data_header.size; idx=idx+sample_size_per_group ) {
+				for( uint32_t sample_idx=0; sample_idx<(fmt_body.bit_per_sample/8); sample_idx++ ) {
+					raw_dump[idx + ch*(fmt_body.bit_per_sample/8) + sample_idx] = single_channel_dump[singla_channel_dump_idx++];
+				}
+			}
+
 		}
 
+	}
+
+	// ----------------------------------------------------------------------------------------------------
+	// Package wave file with processed data
+	if( gFlow_dump_modified != 0 ) {
+		sprintf(filename, "output/MY_%s_modified.wav", InputFileName[gFileSelection]);
+		if( (fp_output = fopen(filename, "wb")) == NULL ) {
+			printf("Can't open the new WAV file for write. Exit.\n");
+			goto EXIT;
+		} else {
+			// write original information
+			if( fwrite(&riff, 1, sizeof(riff), fp_output) != sizeof(riff) ) {
+				printf("Can't write WAV file riff header. Exit.\n");
+				goto EXIT;
+			}
+			if( fwrite(&fmt_header, 1, sizeof(fmt_header), fp_output) != sizeof(fmt_header) ) {
+				printf("Can't write WAV file chunk header. Exit.\n");
+				goto EXIT;
+			}
+			if( fwrite(&fmt_body, 1, fmt_header.size, fp_output) != fmt_header.size ) {
+				printf("Can't write WAV file chunk body. Exit.\n");
+				goto EXIT;
+			}
+			if( fwrite(&data_header, 1, sizeof(data_header), fp_output) != sizeof(data_header) ) {
+				printf("Can't write WAV file data chunk. Exit.\n");
+				goto EXIT;
+			}
+			if( fwrite(raw_dump, fmt_body.block_align, block_numbers, fp_output) != block_numbers ) {
+				printf("Can't write WAV file pcm data. Exit.\n");
+				goto EXIT;
+			}
+			printf("Done. WAV file writing in %s .\n", filename);
+		}
 	}
 
 EXIT:
@@ -490,7 +532,7 @@ EXIT:
 }
 
 int main(void) {
-	for(gFileSelection=0; gFileSelection<=16; gFileSelection++) {
+	for(gFileSelection=process_file_start; gFileSelection<=process_file_end; gFileSelection++) {
 		single_file_processing();
 	}
 }

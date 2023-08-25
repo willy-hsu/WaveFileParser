@@ -11,17 +11,24 @@ from matplotlib import pyplot
 # python 3.11.4 wave - read and write wav files (https://docs.python.org/3/library/wave.html)
 # Note that this does not include files using WAVE_FORMAT_EXTENSIBLE even if the subformat is PCM. !
 
+# unpack
+# https://stackoverflow.com/questions/3783677/how-to-read-integers-from-a-file-that-are-24bit-and-little-endian-using-python
+
 # some setting
 gPlotStart = 0
-gPlotEnd = 200
-gPlotPadding = 11000
-gDataName = "violincon_48k_2ch_16b_short_FRONT_LEFT"
-gGoldenDir = "LOST_none_COMP_none"
-gLostDir = "LOST_inter_sample256x_freq32x_COMP_none"
-gCompDir = "LOST_inter_sample256x_freq32x_COMP_intp"
+gPlotEnd = 128
+gPlotPadding = 192000
+gDataName = "rimsky_192k_2ch_16b_short_FRONT_LEFT"
+gGoldenDir = "0808/192k/LOST_none_COMP_none"
+gLostDir = "0809/192k/LOST_inter_sample4x_freq1x_COMP_none"
+gCompDir = "0809/192k/LOST_inter_sample4x_freq1x_COMP_intp"
 
-def unpack_s24bit(bytes):
-	val = bytes[0] | (bytes[1] << 8) | (bytes[2] << 16)
+def unpack_s24bit_new(inputBytes):
+	val = struct.unpack('<i', inputBytes + (b"\0" if inputBytes[2] < 128 else b"\xff"))
+	return val
+
+def unpack_s24bit(inputBytes):
+	val = inputBytes[0] | (inputBytes[1] << 8) | (inputBytes[2] << 16)
 	if val > 0x00800000 :
 		val = -(0x01000000 - val)
 	return val
@@ -48,13 +55,13 @@ def loadWav(loadtype=0) :
 	elif fileinfo.sampwidth == 3 :
 		ret_numpy_array = numpy.array([], dtype=numpy.int32)
 		for i in range(0, int(gPlotEnd+gPlotPadding*4)*3) : 
-			ret_numpy_array = numpy.append(ret_numpy_array, [unpack_s24bit(audio[i*3:i*3+3])])
+			ret_numpy_array = numpy.append(ret_numpy_array, [unpack_s24bit_new(audio[i*3:i*3+3])])
 	else :
 		ret_numpy_array = numpy.frombuffer(audio, dtype=numpy.int32)
 
 	return fileinfo, ret_numpy_array
 
-def showPCM(start = gPlotStart, end = gPlotEnd, padding = 11000) :
+def showPCM(start = gPlotStart, end = gPlotEnd, padding = gPlotPadding) :
 
 	fig, ax = pyplot.subplots(3,1)
 	fig.suptitle('{} pcm data'.format(gDataName))
@@ -65,24 +72,24 @@ def showPCM(start = gPlotStart, end = gPlotEnd, padding = 11000) :
 	dataSta = start
 	dataEnd = end
 	ax[0].plot(range(start, end), audio_golden_int32[dataSta:dataEnd], 'g', linewidth=0.5, label='golden')
-	ax[0].plot(range(start, end), audio_lost_int32[dataSta:dataEnd], 'k', linewidth=0.5, label='lost')
+	ax[0].plot(range(start, end), audio_lost_int32[dataSta:dataEnd], 'k-o', linewidth=0.5, label='lost', markersize=2)
 	ax[0].plot(range(start, end), audio_proc_int32[dataSta:dataEnd], 'r', linewidth=0.5, label='comp')
 	ax[0].set_title('sample from {} to {}'.format(dataSta, dataEnd))
 	ax[0].legend(loc='upper right')
 
 	dataSta = start+padding
 	dataEnd = end+padding
-	ax[1].plot(range(start, end), audio_golden_int32[dataSta:dataEnd], 'g', linewidth=0.5, label='golden')
-	ax[1].plot(range(start, end), audio_lost_int32[dataSta:dataEnd], 'k', linewidth=0.5, label='lost')
-	ax[1].plot(range(start, end), audio_proc_int32[dataSta:dataEnd], 'r', linewidth=0.5, label='comp')
+	ax[1].plot(range(dataSta, dataEnd), audio_golden_int32[dataSta:dataEnd], 'g', linewidth=0.5, label='golden')
+	ax[1].plot(range(dataSta, dataEnd), audio_lost_int32[dataSta:dataEnd], 'k-o', linewidth=0.5, label='lost', markersize=2)
+	ax[1].plot(range(dataSta, dataEnd), audio_proc_int32[dataSta:dataEnd], 'r', linewidth=0.5, label='comp')
 	ax[1].set_title('sample from {} to {}'.format(dataSta, dataEnd))
 	ax[1].legend(loc='upper right')
 
 	dataSta = start+padding*2
 	dataEnd = end+padding*2
-	ax[2].plot(range(start, end), audio_golden_int32[dataSta:dataEnd], 'g', linewidth=0.5, label='golden')
-	ax[2].plot(range(start, end), audio_lost_int32[dataSta:dataEnd], 'k', linewidth=0.5, label='lost')
-	ax[2].plot(range(start, end), audio_proc_int32[dataSta:dataEnd], 'r', linewidth=0.5, label='comp')
+	ax[2].plot(range(dataSta, dataEnd), audio_golden_int32[dataSta:dataEnd], 'g', linewidth=0.5, label='golden')
+	ax[2].plot(range(dataSta, dataEnd), audio_lost_int32[dataSta:dataEnd], 'k-o', linewidth=0.5, label='lost', markersize=2)
+	ax[2].plot(range(dataSta, dataEnd), audio_proc_int32[dataSta:dataEnd], 'r', linewidth=0.5, label='comp')
 	ax[2].set_title('sample from {} to {}'.format(dataSta, dataEnd))
 	ax[2].legend(loc='upper right')
 	pyplot.show()
@@ -102,5 +109,22 @@ if __name__ == "__main__":
 	audio_proc_fileinfo, audio_proc_int32 = loadWav(2)
 
 	# plot
-	gPlotPadding = audio_golden_fileinfo.framerate - 500
+	# gPlotPadding = audio_golden_fileinfo.framerate - 500
+	# gPlotPadding = 0
 	showPCM(gPlotStart, gPlotEnd, gPlotPadding)
+
+	'''
+	tmpdata = b"\xfe\xff\xff"
+	# print(type(tmpdata[2]))
+
+	if tmpdata[2] < 128 :
+		print("hi")
+	else : 
+		print("what")
+
+	tmpval = struct.unpack('<i', tmpdata + (b"\0" if tmpdata[2] < 128 else b"\xff"))
+	# tmpval = struct.unpack('<i', tmpdata)
+	print(tmpval)
+
+	quit()
+	'''

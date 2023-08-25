@@ -7,6 +7,7 @@
 
 // flow control
 extern uint8_t gFlow_dump_original_wav;
+extern uint8_t gFlow_dump_modified;
 extern uint8_t gFlow_dump_raw_pcm;
 extern uint8_t gFlow_dump_single_channel_header;
 extern uint8_t gFlow_dump_single_channel;
@@ -50,6 +51,8 @@ extern uint8_t compMethod;
 extern uint32_t block_numbers;
 extern uint8_t real_chunk_body_size;
 
+extern uint8_t process_file_start;
+extern uint8_t process_file_end;
 extern char InputFileFolder[][64];
 extern char InputFileName[][256];
 

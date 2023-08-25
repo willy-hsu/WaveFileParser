@@ -28,6 +28,7 @@
 #include "config.h"
 #include "LowcFE.h"
 #include "arch.h"
+#include "config.h"
 
 /*-------------------- INTERNAL FUNCTIONS --------------------*/
 static void g711plc_scalespeech(LowcFE_c *, sint16_t *out);

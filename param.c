@@ -6,13 +6,15 @@
 #include "wave.h"
 #include "wave_type.h"
 #include "param.h"
+#include "config.h"
 
 // -------------------------------------------------- global parameter --------------------------------------------------
 // flow control
-uint8_t gFlow_dump_original_wav = 0;
-uint8_t gFlow_dump_raw_pcm = 0;
+uint8_t gFlow_dump_original_wav = 0; // re-package the output the original data, should be the same as original wav file
+uint8_t gFlow_dump_modified = 1; // generate the wav file with processed pcm data
+uint8_t gFlow_dump_raw_pcm = 0; // dump the processed pcm data
 uint8_t gFlow_dump_single_channel_header = 0; // 0: standard header, 1: extened header
-uint8_t gFlow_dump_single_channel = 0; // 0: disable , 1: dump first channel, 2: dump all channels
+uint8_t gFlow_dump_single_channel = 1; // 0: disable , 1: dump first channel, 2: dump all channels
 uint8_t gFlow_dump_single_channel_pcm = 0; // 0: disable , 1: dump first channel, 2: dump all channels
 
 // file
@@ -43,16 +45,18 @@ uint32_t sample_size_per_group;
 // data lost and compensation
 uint8_t lostRandomOffsetEnable = 0; // 0:disable, 1:enable
 uint32_t randomOffsetMax = 200; // unit : samples
-uint8_t lostMethod = LOSTTYPE_NONE;
-uint16_t Manual_lost_sample_ratio = 1;
-uint16_t Manual_lost_period_ratio = 1;
+uint8_t lostMethod = LOSTTYPE_INTERLEAVE; // LOSTTYPE_NONE, LOSTTYPE_CONTINUOUS, LOSTTYPE_INTERLEAVE
+uint16_t Manual_lost_sample_ratio = 256;
+uint16_t Manual_lost_period_ratio = 32;
 uint16_t Manual_lost_start_sample = 15;
-uint8_t compMethod = COMPTYPE_NONE;
+uint8_t compMethod = COMPTYPE_NONE; // COMPTYPE_NONE, COMPTYPE_INNER_INTERPLOATION
 
 // other information
 uint32_t block_numbers = 0;
 uint8_t real_chunk_body_size = 0;
 
+uint8_t process_file_start = 25;
+uint8_t process_file_end = 33;
 char InputFileFolder[][64] = {
 	// 48k
 	/*  0 */ "sample_wav/48k",

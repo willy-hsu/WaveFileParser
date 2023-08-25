@@ -4,6 +4,7 @@
 #include <string.h>
 #include "arch.h"
 #include "wave.h"
+#include "config.h"
 #include "wave_type.h"
 
 /*-------------------- STRUCTURE --------------------*/

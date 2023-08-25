@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "arch.h"
+#include "config.h"
 #include "utility.h"
 #include "wave.h"
 #include "wave_type.h"
